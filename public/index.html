@@ -467,14 +467,14 @@ tr:hover td{background:var(--surface2);}
       <div class="toolbar">
         <div class="search-box">
           <span class="search-icon">🔍</span>
-          <input type="text" id="search-input" placeholder="Search by name, ID, email..." oninput="renderTable()"/>
+          <input type="text" id="search-input" placeholder="Search by name, ID, email..." oninput="searchStudents()"/>
         </div>
-        <select class="filter-select" id="filter-dept" onchange="renderTable()">
+        <select class="filter-select" id="filter-dept" onchange="searchStudents()">
           <option value="">All Departments</option>
           <option>CSE</option><option>ECE</option><option>ME</option>
           <option>CE</option><option>EEE</option><option>IT</option>
         </select>
-        <select class="filter-select" id="filter-status" onchange="renderTable()">
+        <select class="filter-select" id="filter-status" onchange="searchStudents()">
           <option value="">All Status</option>
           <option>Active</option><option>Inactive</option>
         </select>
@@ -591,41 +591,33 @@ tr:hover td{background:var(--surface2);}
 
 <script>
 // ── DATA ──
-let students = JSON.parse(localStorage.getItem('sms_students')||'[]');
+let students = [];
 let editingId = null;
-const ADMIN = {user:'admin',pass:'admin123'};
-
-// Seed data if empty
-if(students.length===0){
-  students = [
-    {id:'22KN1A6301',name:'Arjun Reddy',dept:'CSE',email:'arjun@nri.edu',phone:'9876543210',year:'4th Year',grade:88,status:'Active',address:'Vijayawada, AP'},
-    {id:'22KN1A6302',name:'Priya Sharma',dept:'ECE',email:'priya@nri.edu',phone:'9876543211',year:'4th Year',grade:74,status:'Active',address:'Guntur, AP'},
-    {id:'22KN1A6303',name:'Ravi Kumar',dept:'ME',email:'ravi@nri.edu',phone:'9876543212',year:'3rd Year',grade:45,status:'Active',address:'Eluru, AP'},
-    {id:'22KN1A6304',name:'Sneha Patel',dept:'CSE',email:'sneha@nri.edu',phone:'9876543213',year:'4th Year',grade:92,status:'Active',address:'Rajahmundry, AP'},
-    {id:'22KN1A6305',name:'Kiran Babu',dept:'EEE',email:'kiran@nri.edu',phone:'9876543214',year:'2nd Year',grade:38,status:'Inactive',address:'Nellore, AP'},
-    {id:'22KN1A6306',name:'Divya Lakshmi',dept:'IT',email:'divya@nri.edu',phone:'9876543215',year:'3rd Year',grade:81,status:'Active',address:'Kakinada, AP'},
-    {id:'22KN1A6307',name:'Suresh Rao',dept:'CE',email:'suresh@nri.edu',phone:'9876543216',year:'1st Year',grade:67,status:'Active',address:'Vizag, AP'},
-    {id:'22KN1A6308',name:'Meena Devi',dept:'CSE',email:'meena@nri.edu',phone:'9876543217',year:'4th Year',grade:55,status:'Active',address:'Tirupati, AP'},
-    {id:'22KN1A6309',name:'Ajay Singh',dept:'ECE',email:'ajay@nri.edu',phone:'9876543218',year:'2nd Year',grade:71,status:'Active',address:'Kurnool, AP'},
-    {id:'22KN1A6330',name:'Sravya',dept:'CSE',email:'sravya@nri.edu',phone:'9876543219',year:'4th Year',grade:82,status:'Active',address:'Agiripalli, AP'},
-  ];
-  save();
-}
-
-function save(){localStorage.setItem('sms_students',JSON.stringify(students));}
 
 // ── AUTH ──
-function doLogin(){
+async function doLogin(){
   const u=document.getElementById('l-user').value.trim();
   const p=document.getElementById('l-pass').value;
   const err=document.getElementById('login-err');
-  if(u===ADMIN.user&&p===ADMIN.pass){
-    document.getElementById('login-screen').style.display='none';
-    document.getElementById('app').style.display='block';
-    refreshDash();
-    renderTable();
-    document.getElementById('dash-date').textContent=new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-  } else {
+  try {
+    const res = await fetch('/api/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:u, password:p})
+    });
+    const data = await res.json();
+    if(data.success){
+      document.getElementById('login-screen').style.display='none';
+      document.getElementById('app').style.display='block';
+      document.getElementById('dash-date').textContent=new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+      await loadStudents();
+    } else {
+      err.textContent='Invalid credentials. Try admin / admin123';
+      err.style.display='block';
+      setTimeout(()=>err.style.display='none',3000);
+    }
+  } catch(e){
+    err.textContent='Server error. Please try again.';
     err.style.display='block';
     setTimeout(()=>err.style.display='none',3000);
   }
@@ -634,6 +626,7 @@ document.getElementById('l-pass').addEventListener('keydown',e=>{if(e.key==='Ent
 function doLogout(){
   document.getElementById('login-screen').style.display='flex';
   document.getElementById('app').style.display='none';
+  students=[];
 }
 
 // ── NAV ──
@@ -643,7 +636,19 @@ function showPage(id,el){
   document.getElementById('page-'+id).classList.add('active');
   el.classList.add('active');
   if(id==='dashboard')refreshDash();
-  if(id==='students')renderTable();
+  if(id==='students')renderTable(students);
+}
+
+// ── LOAD STUDENTS FROM MYSQL ──
+async function loadStudents(){
+  try {
+    const res = await fetch('/api/students');
+    students = await res.json();
+    refreshDash();
+    renderTable(students);
+  } catch(e){
+    toast('Failed to load students','danger');
+  }
 }
 
 // ── DASHBOARD ──
@@ -688,28 +693,14 @@ function renderRecent(){
 }
 
 // ── TABLE ──
-function renderTable(){
-  const q=document.getElementById('search-input').value.toLowerCase();
-  const dept=document.getElementById('filter-dept').value;
-  const status=document.getElementById('filter-status').value;
-
-  let filtered=students.filter(s=>{
-    const matchQ=!q||s.name.toLowerCase().includes(q)||s.id.toLowerCase().includes(q)||s.email.toLowerCase().includes(q);
-    const matchD=!dept||s.dept===dept;
-    const matchS=!status||s.status===status;
-    return matchQ&&matchD&&matchS;
-  });
-
+function renderTable(data){
   const tbody=document.getElementById('student-tbody');
   const noRes=document.getElementById('no-results');
-
-  if(filtered.length===0){
-    tbody.innerHTML='';
-    noRes.style.display='block';
-    return;
+  if(!data||data.length===0){
+    tbody.innerHTML='';noRes.style.display='block';return;
   }
   noRes.style.display='none';
-  tbody.innerHTML=filtered.map(s=>`
+  tbody.innerHTML=data.map(s=>`
     <tr>
       <td><code style="font-family:'IBM Plex Mono',monospace;font-size:0.78rem;color:var(--muted);">${s.id}</code></td>
       <td><strong>${s.name}</strong></td>
@@ -726,6 +717,22 @@ function renderTable(){
       </td>
     </tr>
   `).join('');
+}
+
+// ── SEARCH ──
+async function searchStudents(){
+  const q=document.getElementById('search-input').value.trim();
+  const dept=document.getElementById('filter-dept').value;
+  const status=document.getElementById('filter-status').value;
+  const params=new URLSearchParams();
+  if(q)params.append('q',q);
+  if(dept)params.append('dept',dept);
+  if(status)params.append('status',status);
+  try {
+    const res=await fetch('/api/students/search?'+params.toString());
+    const filtered=await res.json();
+    renderTable(filtered);
+  } catch(e){ toast('Search failed','danger'); }
 }
 
 // ── MODAL ──
@@ -747,16 +754,14 @@ function openModal(s=null){
 function closeModal(){document.getElementById('modal-overlay').classList.remove('open');}
 function editStudent(id){openModal(students.find(s=>s.id===id));}
 
-function saveStudent(){
+// ── SAVE STUDENT ──
+async function saveStudent(){
   const id=document.getElementById('f-id').value.trim();
   const name=document.getElementById('f-name').value.trim();
   const email=document.getElementById('f-email').value.trim();
   const grade=parseInt(document.getElementById('f-grade').value);
-
   if(!id||!name||!email||isNaN(grade)){return toast('Please fill all required fields','danger');}
   if(grade<0||grade>100){return toast('Grade must be 0-100','danger');}
-  if(!editingId&&students.find(s=>s.id===id)){return toast('Student ID already exists','danger');}
-
   const student={
     id,name,email,
     phone:document.getElementById('f-phone').value.trim(),
@@ -764,25 +769,26 @@ function saveStudent(){
     year:document.getElementById('f-year').value,
     grade,
     status:document.getElementById('f-status').value,
-    address:document.getElementById('f-address').value.trim(),
+    address:document.getElementById('f-address').value.trim()
   };
-
-  if(editingId){
-    const idx=students.findIndex(s=>s.id===editingId);
-    students[idx]=student;
-    toast('Student updated successfully','success');
-  } else {
-    students.push(student);
-    toast('Student added successfully','success');
-  }
-  save();closeModal();renderTable();refreshDash();
+  const url=editingId?`/api/students/${editingId}`:'/api/students';
+  const method=editingId?'PUT':'POST';
+  try {
+    const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(student)});
+    const data=await res.json();
+    if(data.success){toast(data.message,'success');closeModal();await loadStudents();}
+    else toast(data.error||'Error saving','danger');
+  } catch(e){toast('Server error','danger');}
 }
 
-function deleteStudent(id){
+// ── DELETE STUDENT ──
+async function deleteStudent(id){
   if(!confirm('Delete this student? This cannot be undone.'))return;
-  students=students.filter(s=>s.id!==id);
-  save();renderTable();refreshDash();
-  toast('Student deleted','danger');
+  try {
+    const res=await fetch(`/api/students/${id}`,{method:'DELETE'});
+    const data=await res.json();
+    if(data.success){toast('Student deleted','danger');await loadStudents();}
+  } catch(e){toast('Delete failed','danger');}
 }
 
 // ── TOAST ──
@@ -793,34 +799,28 @@ function toast(msg,type=''){
 }
 
 // ── AI CHAT ──
-aasync function generateReport(type, btn) {
-  document.querySelectorAll('.btn-report').forEach(b => b.classList.remove('ai-active'));
-  btn.classList.add('ai-active');
-  const out = document.getElementById('ai-report-out');
-  out.innerHTML = '<em>⏳ Generating AI report...</em>';
-
-  const prompts = {
-    summary: `Generate a class summary report for these students: ${JSON.stringify(students)}. Include total, pass/fail ratio, average grade, department distribution.`,
-    toppers: `Identify top 5 performers from: ${JSON.stringify(students)}. List with grades and departments.`,
-    atrisk: `Identify at-risk students (grade < 50 or inactive) from: ${JSON.stringify(students)}. Suggest interventions.`,
-    dept: `Department-wise analysis for: ${JSON.stringify(students)}. Compare by average grade and pass rate.`,
-    advice: `Give 5 recommendations to improve academic performance based on: ${JSON.stringify(students)}.`
-  };
-
+async function sendChat(){
+  const inp=document.getElementById('ai-chat-input');
+  const q=inp.value.trim();
+  if(!q)return;
+  inp.value='';
+  const msgs=document.getElementById('ai-messages');
+  msgs.innerHTML+=`<div class="ai-msg user">${escHtml(q)}</div>`;
+  msgs.innerHTML+=`<div class="ai-msg bot thinking" id="ai-thinking">Thinking...</div>`;
+  msgs.scrollTop=msgs.scrollHeight;
+  const context=`You are an AI assistant for a Student Management System. Student data: ${JSON.stringify(students.map(s=>({name:s.name,dept:s.dept,grade:s.grade,status:s.status})))}. Answer concisely under 100 words.`;
   try {
-    const res = await fetch('/api/ai/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: prompts[type],
-        context: 'You are an academic analyst AI. Provide detailed professional reports.'
-      })
+    const res=await fetch('/api/ai/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:q,context})
     });
-    const data = await res.json();
-    out.textContent = data.reply || 'Report generation failed.';
-  } catch (e) {
-    out.innerHTML = '<em>⚠️ AI unavailable. Check ANTHROPIC_API_KEY in Render.</em>';
+    const data=await res.json();
+    document.getElementById('ai-thinking').outerHTML=`<div class="ai-msg bot">${escHtml(data.reply)}</div>`;
+  } catch(e){
+    document.getElementById('ai-thinking').outerHTML=`<div class="ai-msg bot">⚠️ AI unavailable.</div>`;
   }
+  msgs.scrollTop=msgs.scrollHeight;
 }
 
 // ── AI REPORTS ──
@@ -829,34 +829,28 @@ async function generateReport(type){
   event.target.classList.add('ai-active');
   const out=document.getElementById('ai-report-out');
   out.innerHTML='<em>⏳ Generating AI report...</em>';
-
   const prompts={
-    summary:`Generate a comprehensive class summary report for these students: ${JSON.stringify(students)}. Include total count, pass/fail ratio, average grade, department distribution, and top 3 performers. Format it as a professional report with sections.`,
-    toppers:`Analyze these students and identify the top performers: ${JSON.stringify(students)}. List the top 5 students with their grades and departments. Explain what makes them stand out and suggest how others can learn from them.`,
-    atrisk:`Identify at-risk students (grade < 50 or inactive) from this data: ${JSON.stringify(students)}. For each at-risk student, explain the concern and suggest specific intervention strategies. Be empathetic and constructive.`,
-    dept:`Provide a department-wise academic performance analysis for: ${JSON.stringify(students)}. Compare departments by average grade, pass rate, and student count. Identify the strongest and weakest departments.`,
-    advice:`Based on this student data: ${JSON.stringify(students)}, provide 5 specific, actionable recommendations for the institution to improve overall academic performance. Be practical and specific.`
+    summary:`Generate a class summary for: ${JSON.stringify(students)}. Include total, pass/fail ratio, average grade, department distribution.`,
+    toppers:`Identify top 5 performers from: ${JSON.stringify(students)}. List with grades and departments.`,
+    atrisk:`Identify at-risk students (grade < 50 or inactive) from: ${JSON.stringify(students)}. Suggest interventions.`,
+    dept:`Department-wise analysis for: ${JSON.stringify(students)}. Compare by average grade and pass rate.`,
+    advice:`Give 5 recommendations to improve academic performance based on: ${JSON.stringify(students)}.`
   };
-
-  try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
+  try {
+    const res=await fetch('/api/ai/chat',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:600,
-        messages:[{role:'user',content:prompts[type]}]
-      })
+      body:JSON.stringify({message:prompts[type],context:'You are an academic analyst AI. Provide detailed professional reports.'})
     });
     const data=await res.json();
-    out.textContent=data.content?.[0]?.text||'Report generation failed.';
-  }catch(e){
-    out.innerHTML='<em>⚠️ AI service unavailable. Please check your API connection.</em>';
+    out.textContent=data.reply||'Report generation failed.';
+  } catch(e){
+    out.innerHTML='<em>⚠️ AI unavailable. Check ANTHROPIC_API_KEY in Render.</em>';
   }
 }
 
 function escHtml(t){
-  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // Init
