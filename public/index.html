@@ -793,41 +793,34 @@ function toast(msg,type=''){
 }
 
 // ── AI CHAT ──
-async function sendChat(){
-  const inp=document.getElementById('ai-chat-input');
-  const q=inp.value.trim();
-  if(!q)return;
-  inp.value='';
+aasync function generateReport(type, btn) {
+  document.querySelectorAll('.btn-report').forEach(b => b.classList.remove('ai-active'));
+  btn.classList.add('ai-active');
+  const out = document.getElementById('ai-report-out');
+  out.innerHTML = '<em>⏳ Generating AI report...</em>';
 
-  const msgs=document.getElementById('ai-messages');
-  msgs.innerHTML+=`<div class="ai-msg user">${escHtml(q)}</div>`;
-  msgs.innerHTML+=`<div class="ai-msg bot thinking" id="ai-thinking">Thinking...</div>`;
-  msgs.scrollTop=msgs.scrollHeight;
+  const prompts = {
+    summary: `Generate a class summary report for these students: ${JSON.stringify(students)}. Include total, pass/fail ratio, average grade, department distribution.`,
+    toppers: `Identify top 5 performers from: ${JSON.stringify(students)}. List with grades and departments.`,
+    atrisk: `Identify at-risk students (grade < 50 or inactive) from: ${JSON.stringify(students)}. Suggest interventions.`,
+    dept: `Department-wise analysis for: ${JSON.stringify(students)}. Compare by average grade and pass rate.`,
+    advice: `Give 5 recommendations to improve academic performance based on: ${JSON.stringify(students)}.`
+  };
 
-  const context=`You are an AI assistant for a Student Management System. Here is the current student data: ${JSON.stringify(students.map(s=>({name:s.name,dept:s.dept,grade:s.grade,status:s.status,year:s.year})))}. Answer concisely and helpfully about students, performance, and academic insights. Keep responses under 120 words.`;
-
-  try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key':'sk-ant-YOUR_KEY_HERE',
-        'anthropic-version':'2023-06-01'
-      },
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:200,
-        system:context,
-        messages:[{role:'user',content:q}]
+  try {
+    const res = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: prompts[type],
+        context: 'You are an academic analyst AI. Provide detailed professional reports.'
       })
     });
-    const data=await res.json();
-    const reply=data.content?.[0]?.text||'Sorry, I could not process that.';
-    document.getElementById('ai-thinking').outerHTML=`<div class="ai-msg bot">${escHtml(reply)}</div>`;
-  }catch(e){
-    document.getElementById('ai-thinking').outerHTML=`<div class="ai-msg bot">⚠️ AI unavailable right now. Check your connection.</div>`;
+    const data = await res.json();
+    out.textContent = data.reply || 'Report generation failed.';
+  } catch (e) {
+    out.innerHTML = '<em>⚠️ AI unavailable. Check ANTHROPIC_API_KEY in Render.</em>';
   }
-  msgs.scrollTop=msgs.scrollHeight;
 }
 
 // ── AI REPORTS ──
