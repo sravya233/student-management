@@ -132,7 +132,9 @@ app.post('/api/ai/chat', async (req, res) => {
       })
     });
     const data = await response.json();
-    res.json({ reply: data.content?.[0]?.text || 'No response from AI.' });
+    console.log('AI Response:', JSON.stringify(data));
+    const reply = data.content?.[0]?.text || data.error?.message || JSON.stringify(data);
+    res.json({ reply });
   } catch (err) {
     res.status(500).json({ error: 'AI service error' });
   }
